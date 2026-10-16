@@ -11,7 +11,8 @@ st.set_page_config(
     page_icon="⚽",
     layout="wide"
 )
-
+pd.read_csv("players.csv")
+pd.read_csv("transfers.csv")
 SERIE_A_MAP = {
     "Atalanta": ["atalanta"],
     "Bologna": ["bologna"],
