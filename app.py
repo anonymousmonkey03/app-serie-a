@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 # ---------------------------------------------------------
@@ -12,97 +12,221 @@ st.set_page_config(
     layout="wide"
 )
 
-# Squadre ufficiali Serie A 2024/2025 - 2025/2026
-SERIE_A_CLUBS = [
-    "Atalanta", "Bologna", "Cagliari", "Como", "Empoli",
-    "Fiorentina", "Genoa", "Inter", "Juventus", "Lazio",
-    "Lecce", "Milan", "Monza", "Napoli", "Parma",
-    "Roma", "Torino", "Udinese", "Venezia", "Verona"
-]
+SERIE_A_MAP = {
+    "Atalanta": ["atalanta"],
+    "Bologna": ["bologna"],
+    "Cagliari": ["cagliari"],
+    "Como": ["como"],
+    "Empoli": ["empoli"],
+    "Fiorentina": ["fiorentina"],
+    "Genoa": ["genoa"],
+    "Inter": ["inter", "internazionale"],
+    "Juventus": ["juventus"],
+    "Lazio": ["lazio"],
+    "Lecce": ["lecce"],
+    "Milan": ["milan"],
+    "Monza": ["monza"],
+    "Napoli": ["napoli"],
+    "Parma": ["parma"],
+    "Roma": ["roma"],
+    "Torino": ["torino"],
+    "Udinese": ["udinese"],
+    "Venezia": ["venezia"],
+    "Verona": ["verona", "hellas"]
+}
 
 # ---------------------------------------------------------
-# 2. CARICAMENTO DATI (CSV O FALLBACK)
+# 2. FUNZIONI DI SUPPORTO E CARICAMENTO
 # ---------------------------------------------------------
+def find_column(df, candidates):
+    """Trova la colonna corretta provando vari nomi possibili."""
+    for c in df.columns:
+        if c.lower().strip() in candidates:
+            return c
+    return None
+
+def match_team(team_str, target_key):
+    """Controlla se il nome nel CSV corrisponde alla squadra selezionata."""
+    if pd.isna(team_str):
+        return False
+    team_clean = str(team_str).lower()
+    keywords = SERIE_A_MAP.get(target_key, [target_key.lower()])
+    return any(kw in team_clean for kw in keywords)
+
 @st.cache_data
-def load_fallback_data():
-    """Dataset di esempio per evitare crash se i CSV non sono ancora caricati."""
-    players_demo = [
-        {"player_id": 1, "name": "Paulo Dybala", "current_club_name": "Roma", "date_of_birth": "1993-11-15"},
-        {"player_id": 2, "name": "Federico Chiesa", "current_club_name": "Liverpool", "date_of_birth": "1997-10-25"},
-        {"player_id": 3, "name": "Dušan Vlahović", "current_club_name": "Juventus", "date_of_birth": "2000-01-28"},
-        {"player_id": 4, "name": "Piotr Zieliński", "current_club_name": "Inter", "date_of_birth": "1994-05-20"},
-        {"player_id": 5, "name": "Romelu Lukaku", "current_club_name": "Napoli", "date_of_birth": "1993-05-13"},
-        {"player_id": 6, "name": "Giocatore Test Compleanno", "current_club_name": "Roma", "date_of_birth": f"1998-{datetime.now().strftime('%m-%d')}"}
+def load_fallback():
+    p_data = [
+        {"name": "Paulo Dybala", "current_club_name": "AS Roma", "date_of_birth": "1993-11-15"},
+        {"name": "Dušan Vlahović", "current_club_name": "Juventus FC", "date_of_birth": "2000-01-28"},
+        {"name": "Piotr Zieliński", "current_club_name": "FC Internazionale", "date_of_birth": "1994-05-20"},
+        {"name": "Romelu Lukaku", "current_club_name": "SSC Napoli", "date_of_birth": "1993-05-13"},
+        {"name": "Giocatore Test", "current_club_name": "AS Roma", "date_of_birth": datetime.now().strftime('%Y-%m-%d')}
     ]
-    transfers_demo = [
-        {"player_id": 1, "player_name": "Paulo Dybala", "from_club_name": "Juventus", "to_club_name": "Roma"},
-        {"player_id": 2, "player_name": "Federico Chiesa", "from_club_name": "Fiorentina", "to_club_name": "Juventus"},
-        {"player_id": 3, "player_name": "Dušan Vlahović", "from_club_name": "Fiorentina", "to_club_name": "Juventus"},
-        {"player_id": 4, "player_name": "Piotr Zieliński", "from_club_name": "Napoli", "to_club_name": "Inter"},
-        {"player_id": 5, "player_name": "Romelu Lukaku", "from_club_name": "Inter", "to_club_name": "Roma"},
-        {"player_id": 5, "player_name": "Romelu Lukaku", "from_club_name": "Roma", "to_club_name": "Napoli"},
-        {"player_id": 6, "player_name": "Giocatore Test Compleanno", "from_club_name": "Lazio", "to_club_name": "Roma"}
+    t_data = [
+        {"player_name": "Paulo Dybala", "from_club_name": "Juventus FC", "to_club_name": "AS Roma"},
+        {"player_name": "Dušan Vlahović", "from_club_name": "ACF Fiorentina", "to_club_name": "Juventus FC"},
+        {"player_name": "Piotr Zieliński", "from_club_name": "SSC Napoli", "to_club_name": "FC Internazionale"},
+        {"player_name": "Romelu Lukaku", "from_club_name": "FC Internazionale", "to_club_name": "AS Roma"},
+        {"player_name": "Romelu Lukaku", "from_club_name": "AS Roma", "to_club_name": "SSC Napoli"}
     ]
-    
-    df_p = pd.DataFrame(players_demo)
-    df_t = pd.DataFrame(transfers_demo)
-    df_p['date_of_birth'] = pd.to_datetime(df_p['date_of_birth'])
-    return df_p, df_t
-
-def get_data(uploaded_players=None, uploaded_transfers=None):
-    """Carica i dati dai file caricati, dai CSV locali o usa il fallback."""
-    if uploaded_players is not None and uploaded_transfers is not None:
-        df_players = pd.read_csv(uploaded_players)
-        df_transfers = pd.read_csv(uploaded_transfers)
-        source = "File caricati manualmente"
-    elif os.path.exists("players.csv") and os.path.exists("transfers.csv"):
-        df_players = pd.read_csv("players.csv")
-        df_transfers = pd.read_csv("transfers.csv")
-        source = "File CSV del Repository GitHub"
-    else:
-        df_players, df_transfers = load_fallback_data()
-        source = "Dataset Demo Integrato (Carica i file CSV per i dati reali)"
-
-    # Normalizzazione colonne
-    p_cols = {c.lower(): c for c in df_players.columns}
-    t_cols = {c.lower(): c for c in df_transfers.columns}
-
-    # Identifica colonna nome e data nascita
-    name_col = p_cols.get('name', p_cols.get('player_name', 'name'))
-    dob_col = p_cols.get('date_of_birth', p_cols.get('dob', 'date_of_birth'))
-    club_col = p_cols.get('current_club_name', p_cols.get('squadra', 'current_club_name'))
-
-    df_players['date_of_birth_dt'] = pd.to_datetime(df_players[dob_col], errors='coerce')
-    
-    return df_players, df_transfers, source, name_col, club_col
+    return pd.DataFrame(p_data), pd.DataFrame(t_data)
 
 # ---------------------------------------------------------
-# 3. SIDEBAR DI CONFIGURAZIONE
+# 3. SIDEBAR - GESTIONE CARICAMENTO CSV
 # ---------------------------------------------------------
-st.sidebar.title("⚽ Configurazione Dati")
-st.sidebar.info("Puoi caricare qui i file `players.csv` e `transfers.csv` scaricati da Kaggle se non li hai inviati su GitHub.")
+st.sidebar.title("📁 Caricamento Database")
 
-up_players = st.sidebar.file_uploader("Carica players.csv", type=["csv"])
-up_transfers = st.sidebar.file_uploader("Carica transfers.csv", type=["csv"])
+up_players = st.sidebar.file_uploader("1. Carica players.csv", type=["csv"])
+up_transfers = st.sidebar.file_uploader("2. Carica transfers.csv", type=["csv"])
 
-df_players, df_transfers, data_source, name_col, club_col = get_data(up_players, up_transfers)
+df_players = None
+df_transfers = None
 
-st.sidebar.write("---")
-st.sidebar.caption(f"**Fonte Dati Attuale:** {data_source}")
+# Lettura Players
+if up_players is not None:
+    df_players = pd.read_csv(up_players)
+    st.sidebar.success(f"✅ `players.csv`: {len(df_players):,} righe")
+elif os.path.exists("players.csv"):
+    df_players = pd.read_csv("players.csv")
+    st.sidebar.success(f"✅ `players.csv` (da repo): {len(df_players):,} righe")
+
+# Lettura Transfers
+if up_transfers is not None:
+    df_transfers = pd.read_csv(up_transfers)
+    st.sidebar.success(f"✅ `transfers.csv`: {len(df_transfers):,} righe")
+elif os.path.exists("transfers.csv"):
+    df_transfers = pd.read_csv("transfers.csv")
+    st.sidebar.success(f"✅ `transfers.csv` (da repo): {len(df_transfers):,} righe")
+
+# Se mancano i dati, carica il fallback informando l'utente
+is_using_demo = False
+if df_players is None or df_transfers is None:
+    demo_p, demo_t = load_fallback()
+    if df_players is None:
+        df_players = demo_p
+    if df_transfers is None:
+        df_transfers = demo_t
+    is_using_demo = True
+    st.sidebar.warning("⚠️ Carica entrambi i file CSV per attivare il database completo.")
 
 # ---------------------------------------------------------
-# 4. DASHBOARD PRINCIPALE
+# 4. NORMALIZZAZIONE ED ESTRAZIONE COLONNE
 # ---------------------------------------------------------
-st.title("⚽ Serie A Intelligence: Compleanni & Ex di Turno")
+col_p_name = find_column(df_players, ['name', 'player_name', 'pretty_name']) or df_players.columns[0]
+col_p_dob = find_column(df_players, ['date_of_birth', 'dob', 'birth_date'])
+col_p_club = find_column(df_players, ['current_club_name', 'club_name', 'squadra', 'current_club'])
+
+col_t_name = find_column(df_transfers, ['player_name', 'name', 'player']) or df_transfers.columns[0]
+col_t_from = find_column(df_transfers, ['from_club_name', 'from_club', 'from_team']) or df_transfers.columns[1]
+col_t_to = find_column(df_transfers, ['to_club_name', 'to_club', 'to_team']) or df_transfers.columns[2]
+
+# Converti le date
+if col_p_dob:
+    df_players['dob_clean'] = pd.to_datetime(df_players[col_p_dob], errors='coerce')
+else:
+    df_players['dob_clean'] = pd.NaT
+
+# ---------------------------------------------------------
+# 5. DASHBOARD PRINCIPALE
+# ---------------------------------------------------------
+st.title("⚽ Serie A Intelligence - Soft Stats")
 today = datetime.now()
 st.markdown(f"**Data di oggi:** `{today.strftime('%d/%m/%Y')}`")
 
+if is_using_demo:
+    st.info("ℹ️ **Modalità Demo Attiva:** Stai visualizzando i dati di test. Usa la barra laterale a sinistra per caricare i file CSV scaricati da Kaggle.")
+
 st.markdown("---")
 
-# --- SEZIONE 1: COMPLEANNI DI OGGI ---
-st.subheader("🎂 Compleanni di Oggi")
+# --- SEZIONE COMPLEANNI ---
+st.subheader("🎂 Compleanni di Oggi e Imminenti")
 
-today_month = today.month
-today_day = today.day
+if col_p_dob:
+    m = today.month
+    d = today.day
+    
+    # Compleanni Oggi
+    df_players['is_bday_today'] = (df_players['dob_clean'].dt.month == m) & (df_players['dob_clean'].dt.day == d)
+    bdays_today = df_players[df_players['is_bday_today']]
+    
+    # Compleanni Prossimi 3 giorni
+    next_3_days = [(today + timedelta(days=i)).strftime('%m-%d') for i in range(1, 4)]
+    df_players['md_str'] = df_players['dob_clean'].dt.strftime('%m-%d')
+    bdays_soon = df_players[df_players['md_str'].isin(next_3_days)]
 
-#
+    if not bdays_today.empty:
+        st.write("🎉 **Compleanni di OGGI:**")
+        cols = st.columns(min(len(bdays_today), 3))
+        for idx, (_, p) in enumerate(bdays_today.iterrows()):
+            eta = today.year - p['dob_clean'].year
+            club = p[col_p_club] if col_p_club else "N/D"
+            with cols[idx % 3]:
+                st.success(f"🎂 **{p[col_p_name]}** ({club})\n\nCompie **{int(eta)} anni** oggi!")
+    else:
+        st.info("Nessun calciatore nel database compie gli anni nella data di oggi.")
+
+    if not bdays_soon.empty:
+        with st.expander("🎈 Compleanni nei prossimi 3 giorni"):
+            for _, p in bdays_soon.iterrows():
+                data_b = p['dob_clean'].strftime('%d/%m')
+                club = p[col_p_club] if col_p_club else "N/D"
+                st.write(f"- **{p[col_p_name]}** ({club}) ➔ {data_b}")
+else:
+    st.error("Colonna data di nascita non rilevata nel file dei giocatori.")
+
+st.markdown("---")
+
+# --- SEZIONE LEGGE DELL'EX ---
+st.subheader("⚔️ La Legge dell'Ex - Analisi Sfida")
+
+list_teams = sorted(list(SERIE_A_MAP.keys()))
+col_c, col_t = st.columns(2)
+
+with col_c:
+    casa = st.selectbox("Squadra in CASA", list_teams, index=15) # Roma
+
+with col_t:
+    opzioni_t = [t for t in list_teams if t != casa]
+    trasferta = st.selectbox("Squadra in TRASFERTA", opzioni_t, index=7) # Inter/Juventus
+
+st.markdown(f"### Match: **{casa}** vs **{trasferta}**")
+
+# Filtra i trasferimenti con matching flessibile
+ex_casa = df_transfers[
+    df_transfers[col_t_from].apply(lambda x: match_team(x, trasferta)) & 
+    df_transfers[col_t_to].apply(lambda x: match_team(x, casa))
+]
+
+ex_trasferta = df_transfers[
+    df_transfers[col_t_from].apply(lambda x: match_team(x, casa)) & 
+    df_transfers[col_t_to].apply(lambda x: match_team(x, trasferta))
+]
+
+res_col1, res_col2 = st.columns(2)
+
+with res_col1:
+    st.markdown(f"🔰 **Ex di turno sponda {casa}** *(hanno giocato a {trasferta})*:")
+    if not ex_casa.empty:
+        giocatori_unici = ex_casa[col_t_name].unique()
+        for g in giocatori_unici:
+            st.warning(f"🔥 **{g}**")
+    else:
+        st.write("Nessun ex trovato.")
+
+with res_col2:
+    st.markdown(f"✈️ **Ex di turno sponda {trasferta}** *(hanno giocato a {casa})*:")
+    if not ex_trasferta.empty:
+        giocatori_unici = ex_trasferta[col_t_name].unique()
+        for g in giocatori_unici:
+            st.warning(f"🔥 **{g}**")
+    else:
+        st.write("Nessun ex trovato.")
+
+st.markdown("---")
+
+# --- SEZIONE ANTEPRIMA DATI ---
+with st.expander("🔍 Anteprima e Verifica Dati Caricati"):
+    st.write("### Prime 10 righe Giocatori")
+    st.dataframe(df_players.head(10), use_container_width=True)
+    st.write("### Prime 10 righe Trasferimenti")
+    st.dataframe(df_transfers.head(10), use_container_width=True)
